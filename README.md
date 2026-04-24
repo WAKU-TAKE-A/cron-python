@@ -10,7 +10,7 @@
 - **スケジュール実行**: `APScheduler` によるCronベースの定期実行制御。
 - **堅牢なタイムアウト管理**: タイムアウト時間を超過した場合、Windows配下の子孫プロセスごと一括で強制終了します。
 - **構造化ロギング**: AIフレンドリーな形式（JSONフォーマット）で、開始・終了・ストリーム出力等のイベントを捕捉し、システム監視への統合を容易にします。
-- **独立した実行環境**: `--` でCLIオプションと対象スクリプトの引数を安全に分離し、任意のJSONパラメーターを渡すことができます。
+- **柔軟な引数受渡**: CLIオプションと対象スクリプトの引数を安全に分離し、任意の引数やパラメーターを渡すことができます。
 
 ---
 
@@ -18,7 +18,7 @@
 
 ### CLI 基本フォーマット
 ```powershell
-cron_python.exe <script> --cron "<cron_expr>" [options] -- "<json_args>"
+cron_python.exe <script> --cron "<cron_expr>" [options] [-p <arg1> -p <arg2> ...]
 ```
 
 ### 主要なオプション
@@ -26,6 +26,7 @@ cron_python.exe <script> --cron "<cron_expr>" [options] -- "<json_args>"
 |---|---|
 | `<script>` | 実行対象のターゲットとなるPythonスクリプトパス |
 | `--cron` | 定期実行するCron式（例: `*/5 * * * *`）。`--once`を利用しない場合必須。 |
+| `--param`, `-p` | 実行対象スクリプトに渡す引数。複数指定可能です（例: `-p val1 -p val2`）。 |
 | `--once` | スケジュール実行を無視して1回のみ即時実行します（テスト用途向け）。 |
 | `--run-on-start` | スケジュール（cron式）の最初のトリガーを待たずに、起動直後にまずは1回ジョブを実行します。 |
 | `--version` | バージョン情報を表示して終了します。 |
@@ -37,7 +38,6 @@ cron_python.exe <script> --cron "<cron_expr>" [options] -- "<json_args>"
 | `--log-backup-count` | 保存しておく過去のローテーションログの最大ファイル数（デフォルト: `10`）。 |
 | `--log-stdout` | `true` を指定すると標準出力へのロギングを強制します（デフォルト: `false`）。 |
 | `--log-stderr` | `true` を指定すると標準エラー出力へのロギングを強制します（デフォルト: `false`）。 |
-| `--` | これ以降のすべての引数文字列は、実行対象のスクリプトへそのまま渡されます。 |
 
 ### Cron式の指定方法
 本ツールは標準的な Unix/Linux の Crontab 形式（5フィールド）に加え、**秒単位の指定が可能な拡張形式（6フィールド）**をサポートしています。
@@ -95,14 +95,14 @@ cron_python.exe <script> --cron "<cron_expr>" [options] -- "<json_args>"
 ### 実行例
 
 #### 1. 定期スケジュール（Cron）での実行
-5分ごとに実行。ログをJSON形式で標準出力に表示し、対象スクリプトには `{"input": "data.csv"}` を渡す場合：
+5分ごとに実行。ログをJSON形式で標準出力に表示し、対象スクリプトには `-p "input=data.csv"` を渡す場合：
 ```powershell
-cron_python.exe batch.py --cron "*/5 * * * *" --timeout 60 --log-format json --log-dest stdout -- "{\"input\":\"data.csv\"}"
+cron_python.exe batch.py --cron "*/5 * * * *" --timeout 60 --log-format json --log-dest stdout -p "input=data.csv"
 ```
 
 #### 2. 即時実行モードによるテスト（1回だけ実行）
 ```powershell
-cron_python.exe batch.py --once --log-format json -- "{\"duration\": 3}"
+cron_python.exe batch.py --once --log-format json -p "duration=3"
 ```
 
 ---
@@ -113,16 +113,16 @@ JSONフォーマット（`--log-format json`）を指定した場合、以下の
 
 **成功時の例 (`exit_code: 0`)**:
 ```json
-{"event": "startup", "message": "cron-python is starting"}
-{"event": "job_started", "script": "batch.py", "args": "{\"duration\": 1}"}
-{"event": "script_stdout", "output": "Received arguments: {'duration': 1}\nWork completed successfully."}
+{"event": "startup", "message": "cron-python is starting", "version": "0.9.4"}
+{"event": "job_started", "script": "batch.py", "params": ["duration=1"]}
+{"event": "script_stdout", "output": "Received arguments: ['duration=1']\nWork completed successfully."}
 {"event": "job_finished", "status": "success", "exit_code": 0, "duration_sec": 1.062}
 ```
 
 **タイムアウト発生時の例 (`exit_code: 3`)**:
 ```json
-{"event": "startup", "message": "cron-python is starting"}
-{"event": "job_started", "script": "batch.py", "args": "{\"duration\": 5}"}
+{"event": "startup", "message": "cron-python is starting", "version": "0.9.4"}
+{"event": "job_started", "script": "batch.py", "params": ["duration=5"]}
 {"event": "job_finished", "status": "timeout", "exit_code": 3, "duration_sec": 1.129}
 ```
 
