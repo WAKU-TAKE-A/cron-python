@@ -125,37 +125,6 @@ JSONフォーマット（`--log-format json`）を指定した場合、以下の
 {"event": "job_started", "script": "batch.py", "params": ["duration=5"]}
 {"event": "job_finished", "status": "timeout", "exit_code": 3, "duration_sec": 1.129}
 ```
-
----
-
-## 🧪 テストの実行方法
-
-本プロジェクトには、自動化されたテストインフラとして `test_cron_python.py` ならびに EXEテスト用の `test_exe.py` が付属しています。
-
-### 自動テストの実行
-`unittest` ライブラリを使用して `cron_python.py` の挙動をテストできます。
-```powershell
-python test_cron_python.py
-```
-**テスト内容:**
-- 正常な引数渡しと正常終了（Success/0）の確認
-- タイムアウト閾値の超過とキル動作（Timeout/3）の確認
-
-**結果例:**
-```text
-..
-----------------------------------------------------------------------
-Ran 2 tests in 4.086s
-
-OK
-```
-
-### 実行ファイル(EXE)の直接テスト
-ビルド済みのEXEに対しても、クォーテーションのパース問題等を防ぎつつ検証するためのテストスクリプトがあります。
-```powershell
-python test_exe.py
-```
-
 ---
 
 ## 🔨 PyInstallerによるビルド方法
