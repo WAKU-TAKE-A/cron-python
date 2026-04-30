@@ -34,9 +34,12 @@ cron_python.exe script.py --cron "*/5 * * * *" -- arg1 arg2
 | 引数 | 説明 |
 |---|---|
 | `<script>` | 実行対象のターゲットとなるPythonスクリプトパス |
-| `--cron` | 定期実行するCron式（5フィールドまたは6フィールド）。`--once`と同時指定不可。 |
-| `--once` | スケジュール実行を無視して1回のみ即時実行します。`--cron`と同時指定不可。 |
-| `--run-on-start` | スケジュール（cron式）の最初のトリガーを待たずに、起動直後にまずは1回ジョブを実行します。 |
+| `--cron` | 定期実行するCron式（5フィールドまたは6フィールド）。`--once` および `--window-start-cron` / `--window-end-cron` と同時指定不可。 |
+| `--once` | スケジュール実行を無視して1回のみ即時実行します。`--cron` および `--window-start-cron` / `--window-end-cron` と同時指定不可。 |
+| `--window-start-cron` | 常駐系スクリプトを起動するCron式（5フィールドまたは6フィールド）。`--window-end-cron` と組で使います。 |
+| `--window-end-cron` | 常駐系スクリプトを停止するCron式（5フィールドまたは6フィールド）。`--window-start-cron` と組で使います。 |
+| `--run-on-start` | `--cron` または `--window-start-cron` / `--window-end-cron` モードで、最初のトリガーを待たずに起動直後にまず1回開始します。 |
+| `--exit-on-script-error` | ターゲットスクリプトが非0終了コードを返したら cron-python も終了します。デフォルトでは終了せず、次回スケジュールを待ちます。 |
 | `--version` | バージョン情報を表示して終了します。 |
 | `--timeout` | スクリプトの実行タイムアウト（秒）。超過時は強制キルを実行します。 |
 | `--log-format` | ログ形式を指定します。`text` または `json`。デフォルトは `text`。 |
@@ -111,6 +114,11 @@ cron_python.exe batch.py --cron "*/5 * * * *" --timeout 60 --log-format json --l
 #### 2. 即時実行モードによるテスト（1回だけ実行）
 ```powershell
 cron_python.exe batch.py --once --log-format json -p "duration=3"
+```
+
+#### 3. 常駐スクリプトを開始/終了のCronで管理
+```powershell
+cron_python.exe ve_execute.py --window-start-cron "0 10 * * *" --window-end-cron "0 15 * * *"
 ```
 
 ---

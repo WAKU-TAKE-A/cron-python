@@ -26,5 +26,11 @@ def main():
     elif command == "exit_with":
         sys.exit(int(args[1]))
 
+    elif command == "heartbeat":
+        interval = float(args[1]) if len(args) > 1 else 1.0
+        while True:
+            print("heartbeat", flush=True)
+            time.sleep(interval)
+
 if __name__ == "__main__":
     main()
