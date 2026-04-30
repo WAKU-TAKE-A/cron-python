@@ -14,7 +14,7 @@ from apscheduler.events import EVENT_JOB_MAX_INSTANCES
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-VERSION = "0.9.9"
+VERSION = "0.9.10"
 
 EXIT_SUCCESS = 0
 EXIT_ERROR = 2
@@ -187,6 +187,7 @@ class ManagedScriptRunner:
                 stderr=subprocess.PIPE,
                 text=True,
                 bufsize=1,
+                creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
             )
         except Exception as e:
             duration = time.time() - start_time
@@ -291,8 +292,8 @@ class ManagedScriptRunner:
             self.on_error(final_exit_code)
 
 
-def execute_job(script_path, script_args, timeout, logger):
-    runner = ManagedScriptRunner(script_path, script_args, timeout, logger)
+def execute_job(script_path, script_args, timeout, logger, runner=None):
+    runner = runner or ManagedScriptRunner(script_path, script_args, timeout, logger)
     start_result = runner.start()
     if start_result is None:
         return EXIT_SUCCESS
@@ -370,9 +371,6 @@ def main():
     logger = setup_logger(args)
     logger.info({"event": "startup", "message": "cron-python starting", "version": VERSION})
 
-    if args.once:
-        sys.exit(execute_job(args.script, script_args, args.timeout, logger))
-
     scheduler = BlockingScheduler()
     shutdown_state = {"requested": False, "exit_code": EXIT_SUCCESS}
     managed_runner = {"runner": None}
@@ -385,25 +383,34 @@ def main():
         shutdown_state["requested"] = True
         shutdown_state["exit_code"] = exit_code
         logger.warning({"event": "shutdown_requested", "message": message, "exit_code": exit_code})
-        scheduler.shutdown(wait=False)
+        if scheduler.running:
+            scheduler.shutdown(wait=False)
 
     def handle_exit(signum, frame):
         logger.info({"event": "shutdown", "message": f"Signal {signum} received"})
+        shutdown_state["requested"] = True
+        shutdown_state["exit_code"] = EXIT_SUCCESS
         runner = managed_runner["runner"]
         if runner:
             runner.stop(reason="signal", exit_code=EXIT_SUCCESS)
-        scheduler.shutdown(wait=False)
-        sys.exit(0)
+        if scheduler.running:
+            scheduler.shutdown(wait=False)
 
     def scheduled_job():
-        exit_code = execute_job(args.script, script_args, args.timeout, logger)
+        exit_code = execute_job(args.script, script_args, args.timeout, logger, managed_runner["runner"])
         request_shutdown(exit_code, "Target script failed; stopping scheduler")
 
     try:
         signal.signal(signal.SIGINT, handle_exit)
         signal.signal(signal.SIGTERM, handle_exit)
+        if hasattr(signal, "SIGBREAK"):
+            signal.signal(signal.SIGBREAK, handle_exit)
     except Exception:
         pass
+
+    if args.once:
+        managed_runner["runner"] = ManagedScriptRunner(args.script, script_args, args.timeout, logger)
+        sys.exit(execute_job(args.script, script_args, args.timeout, logger, managed_runner["runner"]))
 
     scheduler.add_listener(
         lambda e: logger.warning({"event": "job_skipped", "reason": "max_instances"}),
@@ -412,6 +419,12 @@ def main():
 
     try:
         if args.cron:
+            managed_runner["runner"] = ManagedScriptRunner(
+                args.script,
+                script_args,
+                args.timeout,
+                logger,
+            )
             trigger = build_cron_trigger(args.cron)
             scheduler.add_job(scheduled_job, trigger=trigger, max_instances=1, coalesce=True, misfire_grace_time=60)
             logger.info({
@@ -423,7 +436,7 @@ def main():
             })
 
             if args.run_on_start:
-                exit_code = execute_job(args.script, script_args, args.timeout, logger)
+                exit_code = execute_job(args.script, script_args, args.timeout, logger, managed_runner["runner"])
                 request_shutdown(exit_code, "Target script failed during startup run; exiting")
                 if shutdown_state["requested"]:
                     sys.exit(shutdown_state["exit_code"])
