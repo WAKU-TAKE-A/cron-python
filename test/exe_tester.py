@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timedelta
 
 
-VERSION = "0.9.10"
+VERSION = "0.9.11"
 TEST_DIR = "c:/tmp/cron-python/test/run"
 CRON_EXE = "c:/tmp/cron-python/dist/cron_python.exe"
 TARGET_TOOL = "c:/tmp/cron-python/test/target_tool.py"

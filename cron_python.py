@@ -14,7 +14,7 @@ from apscheduler.events import EVENT_JOB_MAX_INSTANCES
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-VERSION = "0.9.10"
+VERSION = "0.9.11"
 
 EXIT_SUCCESS = 0
 EXIT_ERROR = 2
@@ -112,6 +112,8 @@ def resolve_script_path(script_path):
 
 
 def kill_process_tree(pid, logger):
+    # Note: This tool is Windows-only. taskkill is a Windows-native command
+    # to kill a process and its child tree.
     try:
         subprocess.run(
             ["taskkill", "/F", "/T", "/PID", str(pid)],
@@ -124,12 +126,19 @@ def kill_process_tree(pid, logger):
 
 
 def stream_reader(stream, logger, stream_name):
-    for line in iter(stream.readline, ""):
-        line = line.rstrip()
-        if line:
-            level = logging.WARNING if stream_name == "stderr" else logging.INFO
-            logger.log(level, {"event": "script_output", "stream": stream_name, "message": line})
-    stream.close()
+    try:
+        for line in iter(stream.readline, ""):
+            line = line.rstrip()
+            if line:
+                level = logging.WARNING if stream_name == "stderr" else logging.INFO
+                logger.log(level, {"event": "script_output", "stream": stream_name, "message": line})
+    except ValueError:
+        pass
+    finally:
+        try:
+            stream.close()
+        except Exception:
+            pass
 
 
 class ManagedScriptRunner:
@@ -187,6 +196,7 @@ class ManagedScriptRunner:
                 stderr=subprocess.PIPE,
                 text=True,
                 bufsize=1,
+                # Note: This tool is Windows-only. CREATE_NEW_PROCESS_GROUP is a Windows-specific flag.
                 creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
             )
         except Exception as e:
@@ -235,8 +245,18 @@ class ManagedScriptRunner:
             self.stop_reason = reason
             self.forced_exit_code = exit_code
             pid = self.process.pid
+            proc = self.process
 
         kill_process_tree(pid, self.logger)
+        
+        try:
+            if proc.stdout:
+                proc.stdout.close()
+            if proc.stderr:
+                proc.stderr.close()
+        except Exception:
+            pass
+
         return True
 
     def is_running(self):
@@ -248,7 +268,8 @@ class ManagedScriptRunner:
         return self.last_exit_code if self.last_exit_code is not None else EXIT_ERROR
 
     def _timeout_watch(self, pid, token):
-        time.sleep(self.timeout)
+        if self.completion_event.wait(self.timeout):
+            return
         with self.lock:
             if token != self.run_token:
                 return
@@ -256,8 +277,17 @@ class ManagedScriptRunner:
                 return
             self.stop_reason = "timeout"
             self.forced_exit_code = EXIT_TIMEOUT
+            proc = self.process
 
         kill_process_tree(pid, self.logger)
+
+        try:
+            if proc.stdout:
+                proc.stdout.close()
+            if proc.stderr:
+                proc.stderr.close()
+        except Exception:
+            pass
 
     def _monitor_process(self, process, threads, token):
         process.wait()
@@ -303,6 +333,10 @@ def execute_job(script_path, script_args, timeout, logger, runner=None):
 
 
 def extract_script_args(args, remaining):
+    # Note: Dedicated options for passing parameters to target scripts (like -p/--param)
+    # were considered but discarded. `parse_known_args()` leaves unknown options (like -p)
+    # in `remaining`, or users can explicitly use the `--` separator.
+    # Therefore, we forward these generic arguments directly without interpreting them.
     script_args = []
     if "--" in remaining:
         idx = remaining.index("--")
@@ -339,6 +373,10 @@ def validate_mode_args(parser, args):
 
 
 def main():
+    if os.name != "nt":
+        sys.stderr.write("Error: This tool is Windows-only. Linux/macOS is not supported.\n")
+        sys.exit(1)
+
     parser = argparse.ArgumentParser(description="cron-python: Advanced Python Scheduler")
     parser.add_argument("--cron", help="Cron expression (5 or 6 fields)")
     parser.add_argument("--once", action="store_true", help="Run once and exit")
@@ -372,25 +410,35 @@ def main():
     logger.info({"event": "startup", "message": "cron-python starting", "version": VERSION})
 
     scheduler = BlockingScheduler()
+    shutdown_lock = threading.Lock()
     shutdown_state = {"requested": False, "exit_code": EXIT_SUCCESS}
     managed_runner = {"runner": None}
+
+    def check_shutdown_and_exit():
+        with shutdown_lock:
+            if shutdown_state["requested"]:
+                sys.exit(shutdown_state["exit_code"])
 
     def request_shutdown(exit_code, message):
         if not args.exit_on_script_error or exit_code in (None, EXIT_SUCCESS):
             return
-        if shutdown_state["requested"]:
-            return
-        shutdown_state["requested"] = True
-        shutdown_state["exit_code"] = exit_code
+        with shutdown_lock:
+            if shutdown_state["requested"]:
+                return
+            shutdown_state["requested"] = True
+            shutdown_state["exit_code"] = exit_code
+            
         logger.warning({"event": "shutdown_requested", "message": message, "exit_code": exit_code})
         if scheduler.running:
             scheduler.shutdown(wait=False)
 
     def handle_exit(signum, frame):
         logger.info({"event": "shutdown", "message": f"Signal {signum} received"})
-        shutdown_state["requested"] = True
-        shutdown_state["exit_code"] = EXIT_SUCCESS
-        runner = managed_runner["runner"]
+        with shutdown_lock:
+            shutdown_state["requested"] = True
+            shutdown_state["exit_code"] = EXIT_SUCCESS
+            runner = managed_runner["runner"]
+            
         if runner:
             runner.stop(reason="signal", exit_code=EXIT_SUCCESS)
         if scheduler.running:
@@ -438,8 +486,7 @@ def main():
             if args.run_on_start:
                 exit_code = execute_job(args.script, script_args, args.timeout, logger, managed_runner["runner"])
                 request_shutdown(exit_code, "Target script failed during startup run; exiting")
-                if shutdown_state["requested"]:
-                    sys.exit(shutdown_state["exit_code"])
+                check_shutdown_and_exit()
         else:
             start_trigger = build_cron_trigger(args.window_start_cron)
             end_trigger = build_cron_trigger(args.window_end_cron)
@@ -488,12 +535,10 @@ def main():
                 })
                 start_result = runner.start()
                 request_shutdown(start_result, "Target script failed during window startup; exiting")
-                if shutdown_state["requested"]:
-                    sys.exit(shutdown_state["exit_code"])
+                check_shutdown_and_exit()
 
         scheduler.start()
-        if shutdown_state["requested"]:
-            sys.exit(shutdown_state["exit_code"])
+        check_shutdown_and_exit()
     except Exception as e:
         logger.error({"event": "error", "message": f"Scheduler error: {str(e)}"})
         sys.exit(1)

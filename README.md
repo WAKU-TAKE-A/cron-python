@@ -4,6 +4,10 @@
 
 `cron-python` は、Cron式を用いて指定したPythonスクリプトをスケジュール実行し、構造化されたJSONログを出力します。プロセス実行のタイムアウトによる子プロセスを含めた完全なキル機能（Windowsネイティブの `taskkill /T /F`）を備えており、AIによる自動テスト・システム監視への統合を強力にサポートします。
 
+> [!WARNING]
+> **This tool is Windows-only. Linux/macOS is not supported.**
+> Windowsネイティブのプロセス管理機能（`taskkill`、`CREATE_NEW_PROCESS_GROUP`）に依存しているため、他のOSでは動作しません。
+
 ---
 
 ## 🚀 特徴
@@ -106,14 +110,14 @@ cron_python.exe script.py --cron "*/5 * * * *" -- arg1 arg2
 ### 実行例
 
 #### 1. 定期スケジュール（Cron）での実行
-5分ごとに実行。ログをJSON形式で標準出力に表示し、対象スクリプトには `-p "input=data.csv"` を渡す場合：
+5分ごとに実行。ログをJSON形式で標準出力に表示し、対象スクリプトには `input=data.csv` を渡す場合：
 ```powershell
-cron_python.exe batch.py --cron "*/5 * * * *" --timeout 60 --log-format json --log-dest stdout -p "input=data.csv"
+cron_python.exe batch.py --cron "*/5 * * * *" --timeout 60 --log-format json --log-dest stdout -- input=data.csv
 ```
 
 #### 2. 即時実行モードによるテスト（1回だけ実行）
 ```powershell
-cron_python.exe batch.py --once --log-format json -p "duration=3"
+cron_python.exe batch.py --once --log-format json -- duration=3
 ```
 
 #### 3. 常駐スクリプトを開始/終了のCronで管理
@@ -131,7 +135,8 @@ JSONフォーマット（`--log-format json`）を指定した場合、以下の
 ```json
 {"event": "startup", "message": "cron-python is starting", "version": "0.9.4"}
 {"event": "job_started", "script": "batch.py", "params": ["duration=1"]}
-{"event": "script_stdout", "output": "Received arguments: ['duration=1']\nWork completed successfully."}
+{"event": "script_output", "stream": "stdout", "message": "Received arguments: ['duration=1']"}
+{"event": "script_output", "stream": "stdout", "message": "Work completed successfully."}
 {"event": "job_finished", "status": "success", "exit_code": 0, "duration_sec": 1.062}
 ```
 
