@@ -2,7 +2,7 @@
 
 本プロジェクトは、AIコーディングアシスタント **Antigravity** によって自動生成されたPythonスクリプト・スケジューラーです。
 
-`cron-python` は、Cron式を用いて指定したPythonスクリプトをスケジュール実行し、構造化されたJSONログを出力します。プロセス実行のタイムアウトによる子プロセスを含めた完全なキル機能（Windowsネイティブの `taskkill /T /F`）を備えています。
+`cron-python` は、Cron式を用いて指定したPythonスクリプトをスケジュール実行し、構造化されたJSONログも出力できます。プロセス実行のタイムアウトによる子プロセスを含めた完全なキル機能（Windowsネイティブの `taskkill /T /F`）を備えています。
 
 > [!WARNING]
 > **This tool is Windows-only. Linux/macOS is not supported.**
@@ -47,12 +47,10 @@ cron_python.exe script.py --cron "*/5 * * * *" -- arg1 arg2
 | `--version` | バージョン情報を表示して終了します。 |
 | `--timeout` | スクリプトの実行タイムアウト（秒）。超過時は強制キルを実行します。 |
 | `--log-format` | ログ形式を指定します。`text` または `json`。デフォルトは `text`。 |
-| `--log-dest` | ログの出力先。`stdout`, `file`, `none`。デフォルトは `stdout`。`file` 指定時もコンソールに同時出力されます。 |
-| `--log-file` | `--log-dest file` 指定時の出力先ファイルパス。 |
+| `--log-dest` | ログの出力先。`stdout`, `file`, `both`, `none`。デフォルトは `stdout`。`both` を指定するとコンソールとファイルの両方に出力されます。 |
+| `--log-file` | `--log-dest file` または `both` 指定時の出力先ファイルパス。 |
 | `--log-max-bytes` | ログファイルの最大サイズ（バイト数）。超過すると別ファイルへローテーション保存します（デフォルト: `1048576` / 1MB）。 |
 | `--log-backup-count` | 保存しておく過去のローテーションログの最大ファイル数（デフォルト: `10`）。 |
-| `--log-stdout` | `true` を指定すると標準出力へのロギングを強制します（デフォルト: `false`）。 |
-| `--log-stderr` | `true` を指定すると標準エラー出力へのロギングを強制します（デフォルト: `false`）。 |
 
 ### Cron式の指定方法
 本ツールは標準的な Unix/Linux の Crontab 形式（5フィールド）に加え、**秒単位の指定が可能な拡張形式（6フィールド）**をサポートしています。
@@ -133,7 +131,7 @@ JSONフォーマット（`--log-format json`）を指定した場合、以下の
 
 **成功時の例 (`exit_code: 0`)**:
 ```json
-{"event": "startup", "message": "cron-python is starting", "version": "0.9.4"}
+{"event": "startup", "message": "cron-python starting", "version": "0.9.11"}
 {"event": "job_started", "script": "batch.py", "params": ["duration=1"]}
 {"event": "script_output", "stream": "stdout", "message": "Received arguments: ['duration=1']"}
 {"event": "script_output", "stream": "stdout", "message": "Work completed successfully."}
@@ -142,10 +140,21 @@ JSONフォーマット（`--log-format json`）を指定した場合、以下の
 
 **タイムアウト発生時の例 (`exit_code: 3`)**:
 ```json
-{"event": "startup", "message": "cron-python is starting", "version": "0.9.4"}
+{"event": "startup", "message": "cron-python starting", "version": "0.9.11"}
 {"event": "job_started", "script": "batch.py", "params": ["duration=5"]}
-{"event": "job_finished", "status": "timeout", "exit_code": 3, "duration_sec": 1.129}
+{"event": "job_finished", "status": "timeout", "exit_code": 3, "duration_sec": 1.129, "reason": "timeout"}
 ```
+---
+
+## 🧪 テスト方法
+
+テスト実行には開発用依存関係をインストールしてください。
+
+```powershell
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
 ---
 
 ## 🔨 PyInstallerによるビルド方法
